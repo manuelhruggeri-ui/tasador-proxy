@@ -40,11 +40,11 @@ function httpsGet(url, token) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const headers = {
-      'Authorization': `Bearer ${token}`,
       'Accept': 'application/json',
       'Accept-Encoding': 'gzip, deflate, br',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const opts = { hostname: u.hostname, path: u.pathname + u.search, headers };
     https.get(opts, res => {
       let chunks = [];
@@ -80,7 +80,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   if (url.pathname === '/token-test') {
-try {
+    try {
       const body = `grant_type=authorization_code&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${AUTH_CODE}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
       const r = await httpsPost('https://api.mercadolibre.com/oauth/token', body);
       res.writeHead(200, CORS); res.end(r.body);
@@ -89,6 +89,9 @@ try {
     }
     return;
   }
+
+  if (url.pathname === '/') {
+    res.writeHead(200, CORS); res.end(JSON.stringify({ status: 'ok' })); return;
   }
 
   if (url.pathname === '/ml') {
@@ -107,7 +110,7 @@ try {
 
   if (url.pathname === '/dolar') {
     try {
-      const r = await httpsGet('https://dolarapi.com/v1/dolares/blue', '');
+      const r = await httpsGet('https://dolarapi.com/v1/dolares/blue', null);
       res.writeHead(r.status, CORS); res.end(r.body);
     } catch (err) {
       res.writeHead(500, CORS); res.end(JSON.stringify({ error: err.message }));
