@@ -66,16 +66,8 @@ function httpsGet(url, token) {
 }
 
 async function getToken() {
-  if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
-  const body = `grant_type=authorization_code&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${AUTH_CODE}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
-  const r = await httpsPost('https://api.mercadolibre.com/oauth/token', body);
-  const data = JSON.parse(r.body);
-  if (!data.access_token) throw new Error('Token error: ' + r.body);
-  cachedToken = data.access_token;
-  tokenExpiry = Date.now() + (data.expires_in - 300) * 1000;
-  return cachedToken;
+  return FIXED_TOKEN;
 }
-
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
   const url = new URL(req.url, `http://localhost:${PORT}`);
