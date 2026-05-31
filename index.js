@@ -92,7 +92,7 @@ const server = http.createServer(async (req, res) => {
       const token = await getToken();
       const q = url.searchParams.get('q') || '';
       const limit = url.searchParams.get('limit') || '40';
-      const mlUrl = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(q)}&limit=${limit}&condition=used`;
+     const mlUrl = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(q)}&limit=${limit}`;
       const r = await httpsGet(mlUrl, token);
       res.writeHead(r.status, CORS); res.end(r.body);
     } catch (err) {
