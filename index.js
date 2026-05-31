@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 3000;
 const CLIENT_ID = '4526629467812510';
 const CLIENT_SECRET = 'aKu4PRG4IWVgFjYbnowXZj1FkHYocB6f';
 const REDIRECT_URI = 'https://vermillion-daifuku-30fc6c.netlify.app';
-const AUTH_CODE = 'TG-6a1c879e9b51740001d11cea-221242431';
+const AUTH_CODE = 'TG-6a1c8b71f5a27000010a5a8a-221242431';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
