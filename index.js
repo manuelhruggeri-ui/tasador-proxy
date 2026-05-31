@@ -79,8 +79,16 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
-  if (url.pathname === '/') {
-    res.writeHead(200, CORS); res.end(JSON.stringify({ status: 'ok' })); return;
+  if (url.pathname === '/token-test') {
+try {
+      const body = `grant_type=authorization_code&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${AUTH_CODE}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+      const r = await httpsPost('https://api.mercadolibre.com/oauth/token', body);
+      res.writeHead(200, CORS); res.end(r.body);
+    } catch (err) {
+      res.writeHead(500, CORS); res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
   }
 
   if (url.pathname === '/ml') {
