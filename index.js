@@ -1,23 +1,21 @@
 const http = require('http');
 const https = require('https');
 const zlib = require('zlib');
-
+ 
 const PORT = process.env.PORT || 3000;
 const CLIENT_ID = '4526629467812510';
 const CLIENT_SECRET = 'aKu4PRG4IWVgFjYbnowXZj1FkHYocB6f';
 const REDIRECT_URI = 'https://vermillion-daifuku-30fc6c.netlify.app';
-const AUTH_CODE = '';
-const FIXED_TOKEN = 'APP_USR-4526629467812510-053115-f8f5263eb6ff3015e5b0726541817b9b-221242431';
-
+ 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Content-Type': 'application/json'
 };
-
+ 
 let cachedToken = null;
 let tokenExpiry = 0;
-
+ 
 function httpsPost(url, body) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
@@ -36,7 +34,7 @@ function httpsPost(url, body) {
     req.on('error', reject); req.write(body); req.end();
   });
 }
-
+ 
 function httpsGet(url, token) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
@@ -64,17 +62,27 @@ function httpsGet(url, token) {
     }).on('error', reject);
   });
 }
-
-async function getToken() {
-  return FIXED_TOKEN;
+ 
+async function getToken(code) {
+  if (!code && cachedToken && Date.now() < tokenExpiry) return cachedToken;
+  const body = `grant_type=authorization_code&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${code}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+  const r = await httpsPost('https://api.mercadolibre.com/oauth/token', body);
+  const data = JSON.parse(r.body);
+  if (!data.access_token) throw new Error('Token error: ' + r.body);
+  cachedToken = data.access_token;
+  tokenExpiry = Date.now() + (data.expires_in - 300) * 1000;
+  return cachedToken;
 }
+ 
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
   const url = new URL(req.url, `http://localhost:${PORT}`);
-
+ 
   if (url.pathname === '/token-test') {
     try {
-      const body = `grant_type=authorization_code&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${AUTH_CODE}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+      const code = url.searchParams.get('code') || '';
+      if (!code) throw new Error('Falta el parametro code');
+      const body = `grant_type=authorization_code&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&code=${code}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
       const r = await httpsPost('https://api.mercadolibre.com/oauth/token', body);
       res.writeHead(200, CORS); res.end(r.body);
     } catch (err) {
@@ -82,25 +90,37 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
-
-  if (url.pathname === '/') {
-    res.writeHead(200, CORS); res.end(JSON.stringify({ status: 'ok' })); return;
+ 
+  if (url.pathname === '/set-token') {
+    try {
+      const code = url.searchParams.get('code') || '';
+      if (!code) throw new Error('Falta el parametro code');
+      const token = await getToken(code);
+      res.writeHead(200, CORS); res.end(JSON.stringify({ ok: true, token: token.substring(0, 20) + '...' }));
+    } catch (err) {
+      res.writeHead(500, CORS); res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
   }
-
+ 
+  if (url.pathname === '/') {
+    res.writeHead(200, CORS); res.end(JSON.stringify({ status: 'ok', has_token: !!cachedToken })); return;
+  }
+ 
   if (url.pathname === '/ml') {
     try {
-      const token = await getToken();
+      if (!cachedToken) throw new Error('Sin token. Primero llamar a /set-token?code=...');
       const q = url.searchParams.get('q') || '';
       const limit = url.searchParams.get('limit') || '40';
-     const mlUrl = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(q)}&limit=${limit}`;
-      const r = await httpsGet(mlUrl, token);
+      const mlUrl = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(q)}&limit=${limit}&condition=used`;
+      const r = await httpsGet(mlUrl, cachedToken);
       res.writeHead(r.status, CORS); res.end(r.body);
     } catch (err) {
       res.writeHead(500, CORS); res.end(JSON.stringify({ error: err.message }));
     }
     return;
   }
-
+ 
   if (url.pathname === '/dolar') {
     try {
       const r = await httpsGet('https://dolarapi.com/v1/dolares/blue', null);
@@ -110,8 +130,9 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
-
+ 
   res.writeHead(404, CORS); res.end(JSON.stringify({ error: 'not found' }));
 });
-
+ 
 server.listen(PORT, () => console.log(`Puerto ${PORT}`));
+ 
