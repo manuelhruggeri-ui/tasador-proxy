@@ -133,7 +133,7 @@
 
     <div id="loader" class="loader hidden">
         <div class="spinner"></div>
-        <p class="mono">Buscando publicaciones en MercadoLibre...</p>
+        <p class="mono" id="loaderText">Conectando con MercadoLibre...</p>
     </div>
 
     <div id="results" class="hidden">
@@ -175,17 +175,15 @@
     <script>
         let dolarBlue = 0;
 
-        // Register Service Worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(err => console.log('SW error:', err));
         }
 
-        // Fetch Dolar Blue on load
         async function fetchDolar() {
             try {
                 const res = await fetch('https://dolarapi.com/v1/dolares/blue');
                 const data = await res.json();
-                dolarBlue = (data.compra + data.venta) / 2; // Referencia
+                dolarBlue = (data.compra + data.venta) / 2; 
                 document.getElementById('dolarRef').textContent = `$ ${dolarBlue.toFixed(0)}`;
             } catch (err) {
                 console.error('Error fetching dolar:', err);
@@ -194,17 +192,15 @@
         }
         fetchDolar();
 
-        // Form Submit
         document.getElementById('searchForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             document.getElementById('loader').classList.remove('hidden');
             document.getElementById('results').classList.add('hidden');
             
-            const marca = document.getElementById('marca').value.trim().toLowerCase();
-            const modelo = document.getElementById('modelo').value.trim().toLowerCase();
+            const marca = document.getElementById('marca').value.trim().toLowerCase().replace(/\s/g, '-');
+            const modelo = document.getElementById('modelo').value.trim().toLowerCase().replace(/\s/g, '-');
             const anio = document.getElementById('anio').value.trim();
             
-            // Construcción de URL de ML
             let urlML = `https://autos.mercadolibre.com.ar/autos-camionetas/${marca}-${modelo}/_YearRange_${anio}-${anio}_NoIndex_True`;
             
             try {
@@ -222,43 +218,58 @@
             }
         });
 
-        async function scrapeMercadoLibre(url) {
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-            const res = await fetch(proxyUrl);
-            if (!res.ok) throw new Error('Error en el proxy');
-            const html = await res.text();
+        async function fetchWithFallbacks(targetUrl) {
+            const proxies = [
+                `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+                `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`,
+                `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`
+            ];
             
+            for (let i = 0; i < proxies.length; i++) {
+                try {
+                    document.getElementById('loaderText').textContent = `Intentando conexión (Proxy ${i+1})...`;
+                    const res = await fetch(proxies[i]);
+                    if (res.ok) {
+                        const text = await res.text();
+                        // Verificamos que el HTML tenga contenido real y no un bloqueo 403 vacío
+                        if (text && text.length > 5000 && !text.includes("403 Forbidden")) {
+                            return text;
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`Proxy ${i+1} falló`);
+                }
+            }
+            throw new Error("Todos los proxies fallaron o fueron bloqueados.");
+        }
+
+        async function scrapeMercadoLibre(url) {
+            const html = await fetchWithFallbacks(url);
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             
-            // Selectores actuales de ML
             const items = doc.querySelectorAll('.ui-search-layout__item, .poly-card');
             const listings = [];
 
             items.forEach(item => {
                 try {
-                    // Obtener título
                     const titleEl = item.querySelector('h2, [class*="title"] a, .poly-component__title');
                     const title = titleEl ? titleEl.textContent.trim() : '';
                     if (!title) return;
 
-                    // Obtener precio
-                    const priceEl = item.querySelector('.andes-money, [class*="price"] span');
+                    const priceEl = item.querySelector('.andes-money, [class*="price"] span, .poly-price__current');
                     let priceText = priceEl ? priceEl.textContent.trim() : '';
                     
-                    // Extraer números y moneda
                     let currency = 'ARS';
                     if (priceText.includes('US$') || priceText.includes('USD')) currency = 'USD';
                     
                     const priceNum = parseInt(priceText.replace(/[^0-9]/g, ''));
-                    if (!priceNum || priceNum < 1500000) return; // Filtro de anticipos/señas
+                    if (!priceNum || priceNum < 1500000) return; 
 
-                    // Extraer Año y Km (suele estar en atributos o en el título)
                     let yearMatch = title.match(/(19\d{2}|20\d{2})/);
                     let year = yearMatch ? yearMatch[0] : document.getElementById('anio').value;
                     
-                    // Buscar Km en los atributos
-                    const attrEls = item.querySelectorAll('.ui-search-card-attributes__attribute, .poly-attributes-list__item');
+                    const attrEls = item.querySelectorAll('.ui-search-card-attributes__attribute, .poly-attributes-list__item, .poly-attributes_list .poly-attributes-list__item');
                     let km = 0;
                     attrEls.forEach(attr => {
                         const text = attr.textContent.toLowerCase();
@@ -268,18 +279,10 @@
                         }
                     });
 
-                    // Link
                     const linkEl = item.querySelector('a');
                     const link = linkEl ? linkEl.href : '#';
 
-                    listings.push({
-                        title,
-                        price: priceNum,
-                        currency,
-                        year,
-                        km,
-                        link
-                    });
+                    listings.push({ title, price: priceNum, currency, year, km, link });
                 } catch (e) {
                     console.warn('Error parseando item', e);
                 }
@@ -289,7 +292,6 @@
         }
 
         function renderResults(listings) {
-            // Filtrar por km si el usuario lo especificó
             const kmDesde = parseInt(document.getElementById('kmDesde').value) || 0;
             const kmHasta = parseInt(document.getElementById('kmHasta').value) || 999999;
             
@@ -300,10 +302,8 @@
                 return;
             }
 
-            // Convertir todo a ARS para unificar el cálculo
             const pricesArs = filtered.map(l => l.currency === 'USD' ? l.price * dolarBlue : l.price);
             
-            // Cálculos
             const sum = pricesArs.reduce((a, b) => a + b, 0);
             const prom = sum / pricesArs.length;
             const perm = prom * 0.8;
@@ -312,12 +312,11 @@
             const mid = Math.floor(sorted.length / 2);
             const mediana = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 
-            // Moda
             const freq = {};
             let maxFreq = 0;
             let moda = sorted[0];
             pricesArs.forEach(p => {
-                const bucket = Math.round(p / 100000) * 100000; // Agrupar por miles para encontrar la moda real
+                const bucket = Math.round(p / 100000) * 100000; 
                 freq[bucket] = (freq[bucket] || 0) + 1;
                 if (freq[bucket] > maxFreq) {
                     maxFreq = freq[bucket];
@@ -325,7 +324,6 @@
                 }
             });
 
-            // Render Stats
             document.getElementById('promArs').textContent = `$ ${prom.toLocaleString('es-AR', {maximumFractionDigits: 0})}`;
             document.getElementById('promUsd').textContent = `U$S ${(prom / dolarBlue).toLocaleString('es-AR', {maximumFractionDigits: 0})}`;
             document.getElementById('permArs').textContent = `$ ${perm.toLocaleString('es-AR', {maximumFractionDigits: 0})}`;
@@ -333,7 +331,6 @@
             document.getElementById('medianaArs').textContent = `$ ${mediana.toLocaleString('es-AR', {maximumFractionDigits: 0})}`;
             document.getElementById('modaArs').textContent = `$ ${moda.toLocaleString('es-AR', {maximumFractionDigits: 0})}`;
 
-            // Distribución (5 barras)
             const minP = sorted[0];
             const maxP = sorted[sorted.length - 1];
             const range = maxP - minP;
@@ -347,7 +344,7 @@
 
             pricesArs.forEach(p => {
                 let idx = Math.floor((p - minP) / step);
-                if (idx === 5) idx = 4; // Caso límite
+                if (idx === 5) idx = 4; 
                 distBuckets[idx]++;
             });
 
@@ -368,7 +365,6 @@
             }).join('');
             document.getElementById('distribution').innerHTML = distHtml;
 
-            // Listados
             document.getElementById('countListings').textContent = filtered.length;
             const listHtml = filtered.map(l => {
                 const priceArs = l.currency === 'USD' ? l.price * dolarBlue : l.price;
